@@ -5,3 +5,6 @@ assets by EmertxE
 
 # require
 reconnecting-websocket
+
+
+![img](./readme/screenshot.png)
