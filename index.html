@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <link rel="stylesheet" href="index.css">
+    <title>main</title>
+
+    <script src="reconnecting-websocket.min.js"></script>
+
+    <style>
+        .swapper-buffer {
+            width: 100%;
+            height: 100%;
+            background-repeat: no-repeat;
+            background-size: cover;
+            background-position: center center;
+        }
+
+        @keyframes fade-in {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+
+        @keyframes fade-out {
+            from {
+                opacity: 1;
+            }
+            to {
+                opacity: 0;
+            }
+        }
+
+        /* Remove this comment to enable blur
+            .filter{
+                filter:blur(1px);
+            }
+            */
+    </style>
+
+    <script>
+        let fadeTime = 350;
+
+        window.onload = async function () {
+            let bgSwapper = {
+                _buffer: document.querySelectorAll(".swapper-buffer"),
+                _front: 0,
+                _back: 1,
+                _fading: false,
+
+                init: function (fadeTime) {
+                    this.fadeTime = fadeTime;
+
+                    for (let img of this._buffer) {
+                        img.onload = function () {
+                            let src = img.style.backgroundImage;
+                            window.URL.revokeObjectURL(src.substr(5, src.length - 7));
+                        };
+                        img.style.position = "fixed";
+
+                    }
+                },
+
+                setNextSrc: function (src) {
+                    this._buffer[this._back].style.backgroundImage = `url("${src}")`;
+                },
+
+                flush: async function () {
+                    if (this._fading) return;
+
+                    this._fading = true;
+                    let fadeout = this.fadeOut(this._buffer[this._front], this.fadeTime);
+                    let fadein = this.fadeIn(this._buffer[this._back], this.fadeTime);
+                    await fadein;
+                    await fadeout;
+                    this._fading = false;
+
+                    this._swap();
+                },
+
+                _swap: function () {
+                    let t = this._front;
+                    this._front = this._back;
+                    this._back = t;
+                },
+
+                fadeIn: function (img, time) {
+                    img.style.animation = `fade-in ${time / 1000.0}s linear`;
+                    return new Promise(function (ret) {
+                        let cb = function () {
+                            img.style.opacity = 1;
+                            img.removeEventListener("animationend", cb);
+                            ret(true);
+                        };
+
+                        img.addEventListener("animationend", cb);
+                    });
+                },
+
+                fadeOut: function (img, time) {
+                    img.style.animation = `fade-out ${time / 1000.0}s linear`;
+                    return new Promise(function (ret) {
+                        let cb = function () {
+                            img.style.opacity = 0;
+                            img.removeEventListener("animationend", cb);
+                            ret(true);
+                        };
+
+                        img.addEventListener("animationend", cb);
+                    });
+                }
+            };
+
+            bgSwapper.init(fadeTime);
+            debugSwapper = bgSwapper;
+
+            let socket = new ReconnectingWebSocket("ws://127.0.0.1:24050/ws");
+
+            socket.onopen = () => {
+                console.log("Successfully Connected");
+            };
+
+            socket.onclose = event => {
+                console.log("Socket Closed Connection: ", event);
+                socket.send("Client Closed!")
+            };
+
+            socket.onerror = error => {
+                console.log("Socket Error: ", error);
+            };
+
+            let tempState;
+			let tempgameState;
+            socket.onmessage = event => {
+                let data = JSON.parse(event.data);
+                let BPM;
+                path = data.menu.bm.path.full;
+                if (tempState !== path) {
+                    tempState = path
+                    let img = data.menu.bm.path.full.replace(/#/g,'%23').replace(/%/g,'%25');
+                    src = 'http://127.0.0.1:24050/Songs/' + img.replace(/\\/g,"/")
+                    bgSwapper.setNextSrc(src);
+                    bgSwapper.flush();
+                }
+				gamestate = data.menu.state;
+                if (data.menu.bm.metadata.title === data.menu.bm.Title_unicode){
+                    title = data.menu.bm.metadata.title
+                }else{
+                    title = data.menu.bm.metadata.title + "</br>" + data.menu.bm.Title_unicode;
+                }
+                artist = data.menu.bm.metadata.artist;
+                if(data.menu.bm.stats.BPM.max === data.menu.bm.stats.BPM.min){
+                    BPM = data.menu.bm.stats.BPM.max
+                }
+                else{
+                    BPM = "("+data.menu.bm.stats.BPM.min+"-"+data.menu.bm.stats.BPM.max+")"
+                }
+                info = "CS"+data.menu.bm.stats.memoryCS+" AR"+data.menu.bm.stats.memoryAR+" HP"+data.menu.bm.stats.memoryHP+" Star"+data.menu.bm.stats.fullSR+" BPM"+ BPM
+                if (gamestate !== tempgameState) {
+                    tempgameState = gamestate;
+                    if (gamestate === 2) {
+                        document.querySelectorAll(".swapper-buffer")[0].style.filter = "blur(0px)";
+                        document.querySelectorAll(".swapper-buffer")[1].style.filter = "blur(0px)";
+                        document.querySelectorAll(".swapper-buffer")[1].style.webkitMaskImage = ""
+                        document.querySelectorAll(".swapper-buffer")[0].style.webkitMaskImage = ""
+                        document.getElementById('title').innerHTML = title;
+                        document.getElementById('artist').innerHTML = "Now Palying&nbsp&nbsp" + artist;
+                        document.getElementById('info').innerHTML = info;
+                    }
+                    else {
+                        document.querySelectorAll(".swapper-buffer")[0].style.filter = "blur(3px)";
+                        document.querySelectorAll(".swapper-buffer")[1].style.filter = "blur(3px)";
+                        document.querySelectorAll(".swapper-buffer")[1].style.webkitMaskImage = "url(2.png)"
+                        document.querySelectorAll(".swapper-buffer")[0].style.webkitMaskImage = "url(2.png)"
+                        document.getElementById('title').innerHTML = "";
+                        document.getElementById('artist').innerHTML = "";
+                        document.getElementById('info').innerHTML = "";
+                    }
+
+                }
+
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <div class="filter">
+        <div class="img-back swapper-buffer" id="img-0" alt=""></div>
+        <div class="img-fornt swapper-buffer" id="img-1" alt=""></div>
+    </div>
+    <div id="artist"></div>
+    <div id="title"></div>
+    <div id="info"></div>
+</body>
+
+</html>
